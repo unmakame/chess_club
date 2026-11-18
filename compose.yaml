@@ -1,0 +1,42 @@
+x-app: &app
+  build: .
+  environment: &connection
+    PGHOST: db
+    PGDATABASE: chess
+    DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: chess
+      POSTGRES_PASSWORD: ${ADMIN_DB_PASSWORD:?Set ADMIN_DB_PASSWORD in .env}
+    volumes:
+      - club_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d chess"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  migrate:
+    <<: *app
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      <<: *connection
+      ADMIN_DB_PASSWORD: ${ADMIN_DB_PASSWORD}
+    command: python db.py
+  app:
+    <<: *app
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    entrypoint: ["python","club.py"]
+  worker:
+    <<: *app
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command: python worker.py
+volumes:
+  club_data:
