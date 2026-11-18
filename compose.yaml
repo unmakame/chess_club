@@ -32,6 +32,17 @@ services:
       migrate:
         condition: service_completed_successfully
     entrypoint: ["python","club.py"]
+  web:
+    <<: *app
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *connection
+      WEB_HOST: 0.0.0.0
+    ports:
+      - "127.0.0.1:8080:8080"
+    command: python web.py
   worker:
     <<: *app
     depends_on:
