@@ -20,7 +20,7 @@ COMMANDS = {
     "leave": ("attendance", ["booking_id", "staff_id"]),
     "maintenance": ("maintain_table", ["table_id", "staff_id", "reason"]),
     "refund": ("settle_refund", ["event_id"]),
-    "refresh": ("refresh_cash", []), "expire": ("expire_bookings", []),
+    "reopen": ("reopen_table", ["table_id"]), "refresh": ("refresh_cash", []), "expire": ("expire_bookings", []),
 }
 
 
@@ -61,21 +61,26 @@ def paging(cmd):
 
 def visitors_csv(conn, path):
     with open(path, encoding="utf-8-sig", newline="") as source:
-        rows = csv.DictReader(source)
-        if rows.fieldnames != ["name", "email"]:
-            raise ValueError("Нужен заголовок name,email")
-        accepted = rejected = 0
-        for row in rows:
-            try:
-                with conn.transaction():
-                    if None in row or None in row.values():
-                        raise ValueError("Неверное число полей")
-                    conn.execute("INSERT INTO visitor(name,email) VALUES(%s,%s)", (row["name"].strip(), row["email"].strip().lower()))
-                accepted += 1
-            except (ValueError, psycopg.Error) as error:
-                print(f"Строка {rows.line_num}: {error}", file=sys.stderr)
-                rejected += 1
-        print(f"Добавлено {accepted}, отклонено {rejected}")
+        accepted, rejected = import_visitors(conn, source, sys.stderr)
+    print(f"Добавлено {accepted}, отклонено {rejected}")
+
+
+def import_visitors(conn, source, errors):
+    rows = csv.DictReader(source)
+    if rows.fieldnames != ["name", "email"]:
+        raise ValueError("Нужен заголовок name,email")
+    accepted = rejected = 0
+    for row in rows:
+        try:
+            with conn.transaction():
+                if None in row or None in row.values():
+                    raise ValueError("Неверное число полей")
+                conn.execute("INSERT INTO visitor(name,email) VALUES(%s,%s)", (row["name"].strip(), row["email"].strip().lower()))
+            accepted += 1
+        except (ValueError, psycopg.Error) as error:
+            print(f"Строка {rows.line_num}: {error}", file=errors)
+            rejected += 1
+    return accepted, rejected
 
 
 def execute(conn, a):
