@@ -31,7 +31,9 @@ def migrate():
         conn.execute("REVOKE ALL ON SCHEMA club FROM PUBLIC")
         conn.execute("REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA club FROM PUBLIC")
         conn.execute("GRANT USAGE ON SCHEMA club TO club_app")
-        conn.execute("GRANT SELECT ON ALL TABLES IN SCHEMA club TO club_app")
+        conn.execute("REVOKE SELECT ON ALL TABLES IN SCHEMA club FROM club_app")
+        conn.execute("GRANT SELECT ON visitor,tariff,booking,chess_table,closed_day,payment,refund,visit,"
+                     "schedule,refund_queue,monthly_cash,attendance_rank,regulars,unused_tables,tariff_sales,no_shows TO club_app")
         conn.execute("GRANT INSERT, UPDATE, DELETE ON visitor,tariff TO club_app")
         conn.execute("GRANT USAGE ON SEQUENCE visitor_id_seq,tariff_id_seq TO club_app")
         for signature in ("hold(bigint,bigint,bigint,timestamptz,timestamptz,uuid)", "receive_payment(bigint,uuid,bigint)",
