@@ -15,6 +15,7 @@ from club import CATALOG, COMMANDS, REPORTS, execute, import_visitors
 from db import connect
 from account_login import install as install_accounts
 from lichess_login import install as install_lichess
+from training import install as install_training
 
 app = Flask(__name__)
 app.config.update(SECRET_KEY=secrets.token_hex(32), SESSION_COOKIE_SAMESITE="Lax",
@@ -41,6 +42,7 @@ def screen(name, title, **props):
 
 install_lichess(app, screen)
 install_accounts(app, screen)
+install_training(app, screen)
 
 
 @app.before_request
@@ -77,7 +79,10 @@ def reserve():
         available=call(db,"available",starts=s,ends=e).fetchall()
         visitors=db.execute("SELECT id,name,email FROM visitor ORDER BY name,id").fetchall()
         tariffs=db.execute("SELECT * FROM tariff ORDER BY name").fetchall()
-    return screen("reserve","Новая бронь", day=day, start=start, end=end, s=s, e=e, available=available, visitors=visitors, tariffs=tariffs)
+        member = next((v for v in visitors if v["id"]==session.get("member")),None)
+        discount = min(15,2*db.execute("SELECT training_streak(%s) AS days",(member["id"],)).fetchone()["days"]) if member else 0
+    return screen("reserve","Новая бронь", day=day, start=start, end=end, s=s, e=e, available=available,
+                  visitors=[member] if member else visitors, tariffs=tariffs, member=member, discount=discount)
 
 
 @app.get("/bookings")
@@ -235,7 +240,12 @@ def action(cmd):
                     target=url_for("booking",b=int(f["booking_id"]))
                 elif cmd in ("refresh","refund"):
                     target=url_for("analytics",view="monthly_cash" if cmd=="refresh" else "refund_queue")
-                result=call(db,cmd,**values).fetchone()[0]
+                if cmd=="hold" and session.get("member"):
+                    result = db.execute("SELECT hold_training(%s,%s,%s,%s,%s,%s)",
+                                        (session["member"],values["table_id"],values["tariff_id"],values["starts"],
+                                         values["ends"],values["request_key"])).fetchone()[0]
+                else:
+                    result=call(db,cmd,**values).fetchone()[0]
                 if cmd=="hold":
                     target=url_for("booking",b=result)
             else:

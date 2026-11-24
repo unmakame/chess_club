@@ -1,3 +1,4 @@
+import Training from './Training';
 import StockfishGame from './StockfishGame';
 import ClubBoard from './ClubBoard';
 import ChessWave from './ChessWave';
@@ -77,6 +78,7 @@ function Reserve() {
       <label>Стол<select name="table_id" defaultValue={query.get("t")||available[0].id}>{available.map(t=><option key={t.id} value={t.id}>{t.code}</option>)}</select></label>
       <label>Поиск посетителя<input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Имя или почта"/></label><label>Посетитель<select required name="visitor_id">{candidates.map(v=><option key={v.id} value={v.id}>{v.name} {v.email ? " · "+v.email : ""}</option>)}</select></label>
       <label>Тариф<select name="tariff_id">{tariffs.map(t=><option key={t.id} value={t.id}>{t.name} · {money(t.hourly_kopecks)}/час</option>)}</select></label>
+      {data.discount>0 && <p>Скидка за серию задач: <strong>{data.discount}%</strong></p>}
       <button disabled={!candidates.length}>Удержать стол на 10 минут</button></Form>}</section></>;
 }
 function Bookings() {
@@ -241,9 +243,9 @@ function ThemeToggle() {
 
 function App() {
   const play = data.screen==="hall" && query.get("play")==="1";
-  const Page=play ? StockfishGame : {coaches:Coaches,profile:Profile,ratings:Ratings,hall:Hall,reserve:Reserve,booking:Booking,bookings:Bookings,table:Table,catalog:Catalog,analytics:Reports,error:ErrorPage}[data.screen];
-  const nav=[["/","Зал"],["/bookings","Брони"],["/catalog/visitor","Посетители"],["/catalog/tariff","Тарифы"],["/ratings","Рейтинг"],["/reports","Аналитика"],["/coaches","Тренеры"],["/profile","Профиль"],["/?play=1","Играть"]];
+  const Page=play ? StockfishGame : {training:Training,coaches:Coaches,profile:Profile,ratings:Ratings,hall:Hall,reserve:Reserve,booking:Booking,bookings:Bookings,table:Table,catalog:Catalog,analytics:Reports,error:ErrorPage}[data.screen];
+  const nav=[["/","Зал"],["/bookings","Брони"],["/catalog/visitor","Посетители"],["/catalog/tariff","Тарифы"],["/ratings","Рейтинг"],["/reports","Аналитика"],["/coaches","Тренеры"],["/profile","Профиль"],["/?play=1","Играть"],["/training","Тренировки"]];
   const active=play ? "/?play=1" : {hall:"/",table:"/",reserve:"/bookings",booking:"/bookings"}[data.screen]||location.pathname;
-  return <><header id="top"><a className="brand" href="/"><img className="brandmark" src="/static/monogram.svg" alt="B, король, B"/><span>bbchess</span></a><SectionNav items={nav} active={active}/><ThemeToggle/></header><main>{data.messages.map(([kind,msg],i)=><aside key={i} role="status" className={kind}>{msg}</aside>)}<Page/></main><SiteFooter items={nav}/></>;
+  return <><header id="top"><a className="brand" href="/"><img className="brandmark" src="/static/monogram.svg" alt="B, король, B"/><span>bbchess</span></a><SectionNav items={nav} active={active}/><ThemeToggle/></header><main>{data.messages.map(([kind,msg],i)=><aside key={i} role="status" className={kind}>{msg}</aside>)}<Page csrf={data.csrf} member={data.member}/></main><SiteFooter items={nav}/></>;
 }
 createRoot(document.getElementById("root")).render(<App/>);

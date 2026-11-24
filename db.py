@@ -33,12 +33,13 @@ def migrate():
         conn.execute("GRANT USAGE ON SCHEMA club TO club_app")
         conn.execute("REVOKE SELECT ON ALL TABLES IN SCHEMA club FROM club_app")
         conn.execute("GRANT SELECT ON visitor,tariff,booking,chess_table,closed_day,payment,refund,visit,employee,"
-                     "schedule,refund_queue,monthly_cash,attendance_rank,regulars,unused_tables,tariff_sales,no_shows,leaderboard,lichess_account,coach,coaching_lesson,club_account TO club_app")
+                     "schedule,refund_queue,monthly_cash,attendance_rank,regulars,unused_tables,tariff_sales,no_shows,leaderboard,lichess_account,coach,coaching_lesson,club_account,daily_puzzle,daily_puzzle_solve TO club_app")
         conn.execute("GRANT INSERT, UPDATE, DELETE ON visitor,tariff TO club_app")
-        conn.execute("GRANT INSERT ON club_account TO club_app")
+        conn.execute("GRANT INSERT ON club_account,daily_puzzle,daily_puzzle_solve TO club_app")
         conn.execute("GRANT USAGE ON SEQUENCE visitor_id_seq,tariff_id_seq TO club_app")
         for signature in ("hold(bigint,bigint,bigint,timestamptz,timestamptz,uuid)", "receive_payment(bigint,uuid,bigint)",
                           "cancel(bigint,text,bigint)", "attendance(bigint,bigint,boolean)", "expire_bookings()",
+                          "training_streak(bigint)", "hold_training(bigint,bigint,bigint,timestamptz,timestamptz,uuid)",
                           "book_lesson(text,bigint,timestamptz)", "sign_in_lichess(text,text,jsonb)", "reopen_table(bigint)", "refresh_cash()", "maintain_table(bigint,bigint,text)", "settle_refund(uuid)"):
             conn.execute("GRANT EXECUTE ON FUNCTION club." + signature + " TO club_app")
 

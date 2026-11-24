@@ -9,6 +9,35 @@ from db import connect
 
 
 class WebChecks(checks.ClubChecks):
+    def test_daily_training_discount(self):
+        from unittest.mock import patch
+
+        client = app.test_client()
+        client.get("/training")
+        with client.session_transaction() as current:
+            current["member"] = 15
+            csrf = current["token"]
+        puzzle = ("sample", {"fen": "3r3k/8/8/4N3/8/8/8/4K3 w - - 0 1"}, ["e5f7"])
+        with patch("training.fetch_puzzle", return_value=puzzle):
+            daily = client.get("/training/daily").get_json()
+        self.assertNotIn("solution",daily)
+        self.assertFalse(client.post("/training/solve", data={
+            "csrf":csrf, "day":daily["day"], "moves":"e5d7",
+        }).get_json()["correct"])
+        for _ in range(2):
+            stats = client.post("/training/solve", data={
+                "csrf":csrf, "day":daily["day"], "moves":"e5f7",
+            }).get_json()
+            self.assertEqual((stats["streak"],stats["discount"]),(1,2))
+        data = {"csrf":csrf, "visitor_id":"1", "table_id":"6", "tariff_id":"1",
+                "starts":self.start.isoformat(), "ends":self.end.isoformat(), "request_key":str(uuid4())}
+        first = client.post("/action/hold", data=data)
+        second = client.post("/action/hold", data=data)
+        self.assertEqual(second.location,first.location)
+        booking_id = int(first.location.rsplit("/",1)[-1])
+        self.assertEqual(self.scalar("SELECT visitor_id,price FROM booking WHERE id=%s",(booking_id,)),15)
+        self.assertEqual(self.scalar("SELECT price FROM booking WHERE id=%s",(booking_id,)),39200)
+
     def test_lichess_registration(self):
         from unittest.mock import patch
         from urllib.parse import parse_qs, urlsplit
