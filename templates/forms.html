@@ -1,4 +1,0 @@
-{% macro hidden(name,value) %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endmacro %}
-{% macro token() %}{{ hidden('csrf',csrf) }}{% endmacro %}
-{% macro staff_select(staff) %}<label>Сотрудник<select required name="staff_id">{% for x in staff %}<option value="{{ x.id }}">{{ x.name }}</option>{% endfor %}</select></label>{% endmacro %}
-{% macro schedule(rows) %}<div class="scroll"><table><thead><tr><th>Бронь</th><th>Посетитель</th><th>Стол</th><th>Начало</th><th>Состояние</th></tr></thead><tbody>{% for r in rows %}<tr><td><a href="{{ url_for('booking',b=r.id) }}">№ {{ r.id }}</a></td><td>{{ r.visitor }}</td><td>{{ r.code }}</td><td>{{ r.starts|display }}</td><td>{{ r.status|display('status') }}</td></tr>{% endfor %}</tbody></table></div>{% endmacro %}

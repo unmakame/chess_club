@@ -7,15 +7,17 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import psycopg
-from flask import Flask, abort, flash, redirect, render_template, request, session, url_for
+from flask import Flask, abort, flash, get_flashed_messages, redirect, render_template, request, session, url_for
 from psycopg.rows import dict_row
 from waitress import serve
 
 from club import CATALOG, COMMANDS, REPORTS, execute, import_visitors
 from db import connect
+from account_login import install as install_accounts
+from lichess_login import install as install_lichess
 
 app = Flask(__name__)
-app.config.update(SECRET_KEY=secrets.token_hex(32), SESSION_COOKIE_SAMESITE="Strict",
+app.config.update(SECRET_KEY=secrets.token_hex(32), SESSION_COOKIE_SAMESITE="Lax",
                   TRUSTED_HOSTS=["localhost", "127.0.0.1", "[::1]"], MAX_CONTENT_LENGTH=65536)
 MSK = ZoneInfo("Europe/Moscow")
 STATUS = dict(HOLD="Удержание", CONFIRMED="Оплачена", IN_USE="В игре", EXPIRED="Истекла",
@@ -27,32 +29,24 @@ LABELS = dict(id="№", code="Стол", visitor="Посетитель", starts=
               status="Статус", name="Название", booking_id="Бронь", payment_id="Платёж", amount="Сумма",
               requested_at="Дата заявки", month="Месяц", net="Итого", change_from_previous_reported_month="Изменение",
               cumulative="Накоплено", occupied_minutes="Минуты", position="Место", visits="Визиты", sales="Продажи",
-              gross="Сумма продаж", missed="Пропуски", last_missed="Последняя неявка", email="Почта")
+              gross="Сумма продаж", missed="Пропуски", last_missed="Последняя неявка", email="Почта", coach="Тренер", rating="Рейтинг", wins="Победы за неделю")
 
 
-@app.context_processor
-def context():
-    return dict(csrf=session.setdefault("token",secrets.token_urlsafe(24)), statuses=STATUS,
-                reports=REPORT_NAMES, labels=LABELS, key=lambda:str(uuid4()))
+def screen(name, title, **props):
+    payload = dict(screen=name, title=title, csrf=session.setdefault("token", secrets.token_urlsafe(24)),
+                   key=str(uuid4()), statuses=STATUS, reports=REPORT_NAMES, labels=LABELS,
+                   messages=get_flashed_messages(with_categories=True), **props)
+    return render_template("app.html", title=title, payload=payload)
+
+
+install_lichess(app, screen)
+install_accounts(app, screen)
 
 
 @app.before_request
 def protect():
     if request.method=="POST" and not secrets.compare_digest(session.get("token","!"),request.form.get("csrf","")):
         abort(403)
-
-
-@app.template_filter("display")
-def display(value, field=""):
-    if value is None:
-        return "—"
-    if field in {"price","amount","net","gross","cumulative","change_from_previous_reported_month","hourly_kopecks"}:
-        return f"{value/100:,.2f} ₽".replace(","," ").replace(".00","")
-    if field=="status":
-        return STATUS.get(value,value)
-    if isinstance(value,datetime):
-        return value.astimezone(MSK).strftime("%d.%m.%Y · %H:%M")
-    return value
 
 
 def call(conn, command, **values):
@@ -68,7 +62,7 @@ def hall():
             AND now()>=b.starts AND now()<b.ends) AS busy FROM chess_table t ORDER BY code""").fetchall()
         upcoming=db.execute("""SELECT * FROM schedule WHERE ends>now() AND status IN ('CONFIRMED','IN_USE','HOLD')
             ORDER BY starts,id LIMIT 6""").fetchall()
-    return render_template("hall.html", tables=tables, upcoming=upcoming, now=datetime.now(MSK))
+    return screen("hall","Игровой зал", tables=tables, upcoming=upcoming, now=datetime.now(MSK))
 
 
 @app.get("/reserve")
@@ -83,7 +77,7 @@ def reserve():
         available=call(db,"available",starts=s,ends=e).fetchall()
         visitors=db.execute("SELECT id,name,email FROM visitor ORDER BY name,id").fetchall()
         tariffs=db.execute("SELECT * FROM tariff ORDER BY name").fetchall()
-    return render_template("reserve.html", day=day, start=start, end=end, s=s, e=e, available=available, visitors=visitors, tariffs=tariffs)
+    return screen("reserve","Новая бронь", day=day, start=start, end=end, s=s, e=e, available=available, visitors=visitors, tariffs=tariffs)
 
 
 @app.get("/bookings")
@@ -94,7 +88,7 @@ def bookings():
         db.row_factory=dict_row
         rows=db.execute("""SELECT * FROM schedule WHERE (%s::text='' OR status=%s)
             ORDER BY starts DESC,id DESC LIMIT 21 OFFSET %s""",(status,status,(page-1)*20)).fetchall()
-    return render_template("bookings.html",rows=rows,page=page,status=status)
+    return screen("bookings","Брони",rows=rows,page=page,status=status)
 
 
 @app.get("/booking/<int:b>")
@@ -107,7 +101,7 @@ def booking(b):
         payments=db.execute("""SELECT p.id,p.amount,r.amount AS refundable,r.settled_at FROM payment p
             LEFT JOIN refund r ON r.payment_id=p.id WHERE p.booking_id=%s ORDER BY received_at""",(b,)).fetchall()
         staff=db.execute("SELECT id,name FROM employee ORDER BY name").fetchall()
-    return render_template("booking.html",row=row,payments=payments,staff=staff)
+    return screen("booking",f"Бронь № {b}",row=row,payments=payments,staff=staff)
 
 
 @app.get("/catalog/<entity>")
@@ -119,7 +113,7 @@ def catalog(entity):
     with connect() as db:
         db.row_factory=dict_row
         rows=call(db,"list",entity=entity,sort="name",search=search,page=page,limit=20).fetchall()
-    return render_template("catalog.html",entity=entity,rows=rows,search=search,page=page)
+    return screen("catalog","Посетители" if entity=="visitor" else "Тарифы",entity=entity,rows=rows,search=search,page=page)
 
 
 @app.post("/visitors/import")
@@ -143,12 +137,57 @@ def upload():
 
 @app.errorhandler(psycopg.DataError)
 def bad_data(error):
-    return render_template("error.html",message="Проверьте формат интервала и введённые значения."),400
+    return screen("error","Ошибка запроса",message="Проверьте формат интервала и введённые значения."),400
 
 
 @app.errorhandler(psycopg.OperationalError)
 def offline(error):
-    return render_template("error.html",message="Нет соединения с базой клуба. Проверьте, что PostgreSQL запущен."),503
+    return screen("error","Ошибка запроса",message="Нет соединения с базой клуба. Проверьте, что PostgreSQL запущен."),503
+
+
+@app.get("/coaches")
+def coaches():
+    with connect() as db:
+        db.row_factory = dict_row
+        roster = db.execute("SELECT * FROM coach ORDER BY hourly_kopecks").fetchall()
+        visitors = db.execute("SELECT id,name FROM visitor ORDER BY name,id").fetchall()
+        lessons = db.execute("""SELECT c.name AS coach,v.name AS visitor,l.starts,l.price
+                                FROM coaching_lesson l JOIN coach c ON c.slug=l.coach_slug
+                                JOIN visitor v ON v.id=l.visitor_id
+                                WHERE l.starts>now() ORDER BY l.starts,l.id LIMIT 30""").fetchall()
+    return screen("coaches", "Тренеры", roster=roster, visitors=visitors, lessons=lessons,
+                  tomorrow=str(datetime.now(MSK).date()+timedelta(days=1)), member=session.get("member"))
+
+
+@app.post("/coaches/book")
+def book_coach():
+    try:
+        start = datetime.fromisoformat(request.form["day"]+"T"+request.form["hour"])
+        if start.tzinfo is not None:
+            raise ValueError()
+        with connect() as db:
+            lesson = db.execute("SELECT book_lesson(%s,%s,%s)",
+                                (request.form["coach"], int(request.form["visitor"]), start.replace(tzinfo=MSK))).fetchone()[0]
+        flash(f"Демонстрационное занятие № {lesson} записано.")
+    except psycopg.errors.UniqueViolation:
+        flash("Тренер или посетитель уже занят в это время.", "error")
+    except psycopg.errors.RaiseException as exc:
+        flash(exc.diag.message_primary, "error")
+    except (ValueError, psycopg.errors.ForeignKeyViolation):
+        flash("Проверьте дату, время и посетителя.", "error")
+    return redirect(url_for("coaches"),303)
+
+
+@app.get("/ratings")
+def ratings():
+    page = max(1, request.args.get("page", 1, type=int))
+    with connect() as db:
+        db.row_factory = dict_row
+        rows = db.execute("SELECT * FROM leaderboard ORDER BY position, name, id LIMIT 26 OFFSET %s",
+                          ((page-1)*25,)).fetchall()
+        leaders = db.execute("""SELECT name,wins FROM leaderboard WHERE wins>0
+                                AND wins=(SELECT max(wins) FROM leaderboard) ORDER BY name,id""").fetchall()
+    return screen("ratings", "Рейтинг клуба", rows=rows, leaders=leaders, page=page)
 
 
 @app.get("/reports")
@@ -162,7 +201,7 @@ def analytics():
         cur=call(db,"report",view=view,page=page,limit=25)
         fields=[col.name for col in cur.description]
         rows=cur.fetchall()
-    return render_template("reports.html",view=view,page=page,fields=fields,rows=rows)
+    return screen("analytics","Аналитика",view=view,page=page,fields=fields,rows=rows)
 
 
 @app.get("/tables/<int:t>")
@@ -173,7 +212,7 @@ def table(t):
         if not row:
             abort(404)
         staff=db.execute("SELECT id,name FROM employee ORDER BY name").fetchall()
-    return render_template("table.html",row=row,staff=staff)
+    return screen("table",f"Стол {row['code']}",row=row,staff=staff)
 
 
 @app.post("/action/<cmd>")
