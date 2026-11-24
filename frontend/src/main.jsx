@@ -1,8 +1,8 @@
+import StockfishGame from './StockfishGame';
 import ClubBoard from './ClubBoard';
 import ChessWave from './ChessWave';
 import SectionNav from './SectionNav';
 import React, {useEffect,useState} from "react";
-import ChessPointer from './ChessPointer';
 import {createRoot} from "react-dom/client";
 
 const data = JSON.parse(document.getElementById("page-data").textContent);
@@ -63,7 +63,7 @@ function Hall() {
         </a>
         {!t.active && <Form className="slot-action" command="reopen" fields={{table_id:t.id}}><button aria-label={"Снять с обслуживания "+t.code}>Снять с обслуживания</button></Form>}
       </div>)}</div>{filter!=="all" && !tables.some(t=>state(t)===filter) && <p>Столов в этом состоянии нет.</p>}</section>
-    <section><div className="sectionhead"><h2>Ближайшие брони</h2><a href="/bookings">Все брони →</a></div><Grid rows={upcoming} fields={scheduleFields} bookingIds/></section></>;
+    <section><div className="sectionhead"><h2>Ближайшие брони</h2><a href="/bookings">Все брони →</a></div>{upcoming.length ? <><p className="booking-mood">Вперёд в бой!</p><Grid rows={upcoming} fields={scheduleFields} bookingIds/></> : <p className="booking-mood"><img src="/static/queen-cursor.svg" alt=""/>Скучаю без партии…</p>}</section></>;
 }
 function Reserve() {
   const {available,visitors,tariffs}=data;
@@ -193,13 +193,6 @@ function SiteFooter({items}) {
         <ul>{items.map(([url,title])=><li key={url}><a href={url}>{title}</a></li>)}</ul>
       </div>
       <div>
-        <h2>Источники</h2>
-        <ul>
-          <li>Фото гроссмейстеров — <a href="/coaches">Wikimedia Commons, авторы и лицензии в карточках</a></li>
-          <li>Рейтинги профиля — <a href="https://lichess.org/api">Lichess API</a></li>
-        </ul>
-      </div>
-      <div>
         <h2>Created by</h2>
         <p>Баянов Владислав<br/>Балдынов Тамир</p>
         <p>React · Flask · PostgreSQL</p>
@@ -209,10 +202,48 @@ function SiteFooter({items}) {
   </footer>;
 }
 
+const themeKey = "bbchess-theme";
+
+function currentTheme() {
+  try {
+    return localStorage.getItem(themeKey) === "light" ? "light" : "dark";
+  } catch {
+    return "dark";
+  }
+}
+
+document.documentElement.dataset.theme = currentTheme();
+
+function ThemeToggle() {
+  const [theme,setTheme] = useState(currentTheme);
+  useEffect(() => {
+    function sync(event) {
+      if (event.key !== themeKey && event.key !== null) return;
+      const next = currentTheme();
+      document.documentElement.dataset.theme = next;
+      setTheme(next);
+    }
+    window.addEventListener("storage",sync);
+    return () => window.removeEventListener("storage",sync);
+  }, []);
+
+  function toggle() {
+    const next = theme === "light" ? "dark" : "light";
+    document.documentElement.dataset.theme = next;
+    setTheme(next);
+    try { localStorage.setItem(themeKey,next); } catch {}
+  }
+
+  return <button type="button" className="theme-toggle" onClick={toggle} aria-label="Светлая тема" aria-pressed={theme==="light"}>
+    <span aria-hidden="true">{theme==="light" ? "☾" : "☀"}</span> {theme==="light" ? "Тёмная" : "Светлая"}
+  </button>;
+}
+
 function App() {
-  const Page={coaches:Coaches,profile:Profile,ratings:Ratings,hall:Hall,reserve:Reserve,booking:Booking,bookings:Bookings,table:Table,catalog:Catalog,analytics:Reports,error:ErrorPage}[data.screen];
-  const nav=[["/","Зал"],["/bookings","Брони"],["/catalog/visitor","Посетители"],["/catalog/tariff","Тарифы"],["/ratings","Рейтинг"],["/reports","Аналитика"],["/coaches","Тренеры"],["/profile","Профиль"]];
-  const active={hall:"/",table:"/",reserve:"/bookings",booking:"/bookings"}[data.screen]||location.pathname;
-  return <><ChessPointer/><header id="top"><a className="brand" href="/"><img className="brandmark" src="/static/monogram.svg" alt="B, король, B"/><span>bbchess</span></a><SectionNav items={nav} active={active}/></header><main>{data.messages.map(([kind,msg],i)=><aside key={i} role="status" className={kind}>{msg}</aside>)}<Page/></main><SiteFooter items={nav}/></>;
+  const play = data.screen==="hall" && query.get("play")==="1";
+  const Page=play ? StockfishGame : {coaches:Coaches,profile:Profile,ratings:Ratings,hall:Hall,reserve:Reserve,booking:Booking,bookings:Bookings,table:Table,catalog:Catalog,analytics:Reports,error:ErrorPage}[data.screen];
+  const nav=[["/","Зал"],["/bookings","Брони"],["/catalog/visitor","Посетители"],["/catalog/tariff","Тарифы"],["/ratings","Рейтинг"],["/reports","Аналитика"],["/coaches","Тренеры"],["/profile","Профиль"],["/?play=1","Играть"]];
+  const active=play ? "/?play=1" : {hall:"/",table:"/",reserve:"/bookings",booking:"/bookings"}[data.screen]||location.pathname;
+  return <><header id="top"><a className="brand" href="/"><img className="brandmark" src="/static/monogram.svg" alt="B, король, B"/><span>bbchess</span></a><SectionNav items={nav} active={active}/><ThemeToggle/></header><main>{data.messages.map(([kind,msg],i)=><aside key={i} role="status" className={kind}>{msg}</aside>)}<Page/></main><SiteFooter items={nav}/></>;
 }
 createRoot(document.getElementById("root")).render(<App/>);
