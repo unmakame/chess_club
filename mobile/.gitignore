@@ -1,0 +1,14 @@
+.gradle/
+.kotlin/
+**/build/
+local.properties
+.idea/
+*.iml
+iosApp/*.xcodeproj/
+**/xcuserdata/
+*.jks
+*.p12
+*.mobileprovision
+node_modules/
+dist/
+.env
