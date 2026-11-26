@@ -6,9 +6,63 @@ from urllib.parse import urlparse
 import checks
 from web import app
 from db import connect
+from tournaments import make_schedule
 
 
 class WebChecks(checks.ClubChecks):
+    def test_round_robin_schedule(self):
+        for count in (3, 8, 32):
+            with self.subTest(players=count):
+                players = list(range(1, count+1))
+                games = make_schedule(players)
+                self.assertEqual(len({tuple(sorted((w,b))) for _,w,b in games}), count*(count-1)//2)
+                rounds = {round_number for round_number,_,_ in games}
+                self.assertEqual(rounds, set(range(1, count+count%2)))
+                for round_number in rounds:
+                    seats = [p for r,w,b in games if r == round_number for p in (w,b)]
+                    self.assertEqual(len(seats), 2*(count//2))
+                    self.assertEqual(len(set(seats)), len(seats))
+                    self.assertTrue(set(seats) <= set(players))
+
+    def test_tournament_registration_and_standings(self):
+        client = app.test_client()
+
+        def sign_in(member):
+            with client.session_transaction() as current:
+                current["member"] = member
+                current["token"] = "tournament-test"
+
+        def post(path, **data):
+            return client.post(path, data={"csrf":"tournament-test", **data})
+
+        sign_in(1)
+        created = post("/tournaments", title="Кубок клуба")
+        self.assertEqual(created.status_code,303)
+        base = created.location
+        for member in (1, 2, 2, 3):
+            sign_in(member)
+            self.assertEqual(post(base+"/join").status_code,303)
+        self.assertEqual(post(base+"/start").status_code,403)
+        sign_in(1)
+        self.assertEqual(post(base+"/start").status_code,303)
+        self.assertEqual(post(base+"/start").status_code,409)
+        self.assertEqual(post(base+"/join").status_code,409)
+        event_id = int(base.rsplit("/",1)[-1])
+        games = self.db.execute("""
+            SELECT round,white_id,black_id FROM tournament_game WHERE tournament_id=%s
+        """, (event_id,)).fetchall()
+        self.assertEqual(len(games),3)
+        for round_number,white,black in games:
+            result = "1-0" if white == 1 else "0-1" if black == 1 else "1/2-1/2"
+            self.assertEqual(post(base+"/result", round=round_number, white_id=white,
+                                  black_id=black, result=result).status_code,303)
+        points = self.db.execute("""
+            SELECT visitor_id,points,place FROM tournament_standings
+            WHERE tournament_id=%s ORDER BY visitor_id
+        """, (event_id,)).fetchall()
+        self.assertEqual(points, [(1,2,1),(2,0.5,2),(3,0.5,2)])
+        self.assertEqual(client.get(base).status_code,200)
+
     def test_daily_training_discount(self):
         from unittest.mock import patch
 

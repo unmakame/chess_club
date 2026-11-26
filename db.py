@@ -36,6 +36,10 @@ def migrate():
                      "schedule,refund_queue,monthly_cash,attendance_rank,regulars,unused_tables,tariff_sales,no_shows,leaderboard,lichess_account,coach,coaching_lesson,club_account,daily_puzzle,daily_puzzle_solve TO club_app")
         conn.execute("GRANT INSERT, UPDATE, DELETE ON visitor,tariff TO club_app")
         conn.execute("GRANT INSERT ON club_account,daily_puzzle,daily_puzzle_solve TO club_app")
+        conn.execute("GRANT SELECT ON tournament,tournament_player,tournament_game,tournament_standings TO club_app")
+        conn.execute("GRANT INSERT ON tournament,tournament_player,tournament_game TO club_app")
+        conn.execute("GRANT UPDATE (started_at) ON tournament TO club_app")
+        conn.execute("GRANT UPDATE (result) ON tournament_game TO club_app")
         conn.execute("GRANT USAGE ON SEQUENCE visitor_id_seq,tariff_id_seq TO club_app")
         for signature in ("hold(bigint,bigint,bigint,timestamptz,timestamptz,uuid)", "receive_payment(bigint,uuid,bigint)",
                           "cancel(bigint,text,bigint)", "attendance(bigint,bigint,boolean)", "expire_bookings()",

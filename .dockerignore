@@ -6,3 +6,4 @@ docs
 frontend/node_modules
 static/bbchess.js
 mobile/
+bin/

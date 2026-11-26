@@ -16,6 +16,7 @@ from db import connect
 from account_login import install as install_accounts
 from lichess_login import install as install_lichess
 from training import install as install_training
+from tournaments import install as install_tournaments
 
 app = Flask(__name__)
 app.config.update(SECRET_KEY=secrets.token_hex(32), SESSION_COOKIE_SAMESITE="Lax",
@@ -43,6 +44,7 @@ def screen(name, title, **props):
 install_lichess(app, screen)
 install_accounts(app, screen)
 install_training(app, screen)
+install_tournaments(app, screen)
 
 
 @app.before_request
