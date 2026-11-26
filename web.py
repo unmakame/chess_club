@@ -66,7 +66,8 @@ def hall():
             AND now()>=b.starts AND now()<b.ends) AS busy FROM chess_table t ORDER BY code""").fetchall()
         upcoming=db.execute("""SELECT * FROM schedule WHERE ends>now() AND status IN ('CONFIRMED','IN_USE','HOLD')
             ORDER BY starts,id LIMIT 6""").fetchall()
-    return screen("hall","Игровой зал", tables=tables, upcoming=upcoming, now=datetime.now(MSK))
+    return screen("hall","Игровой зал", tables=tables, upcoming=upcoming, now=datetime.now(MSK),
+                  member=bool(session.get("member")))
 
 
 @app.get("/reserve")

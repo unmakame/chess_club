@@ -1,6 +1,7 @@
 import React, {useEffect, useRef, useState} from "react";
 import {Chess} from "chess.js";
 import TrainingPiece from "./TrainingPiece";
+import {attemptId, saveTraining, SuggestedLessons} from "./TrainingPlan";
 
 const names = {k:"Король",q:"Ферзь",r:"Ладья",b:"Слон",n:"Конь",p:"Пешка"};
 
@@ -87,7 +88,27 @@ function LossDialog({result,estimate}) {
   </dialog>;
 }
 
-function Game({restart}) {
+function GameSuggestions({csrf, losses}) {
+  const [id] = useState(attemptId);
+  const [plan,setPlan] = useState(null);
+  const [failed,setFailed] = useState(false);
+  const [retry,setRetry] = useState(0);
+  useEffect(() => {
+    let active = true;
+    saveTraining("game-analysis", {csrf, game_id:id, losses:losses.slice(-200).join(" ")})
+      .then(value=>{if (active) setPlan(value);})
+      .catch(()=>{if (active) setFailed(true);});
+    return ()=>{active = false;};
+  }, [csrf, id, losses, retry]);
+  return <section className="move-review">
+    <h2>Задачи после партии</h2>
+    {plan ? <SuggestedLessons plan={plan}/> : failed ?
+      <p>Не удалось сохранить анализ. <button type="button" onClick={()=>{setFailed(false);setRetry(retry+1);}}>Повторить</button></p> :
+      <p role="status">Подбираем задачи…</p>}
+  </section>;
+}
+
+function Game({restart, csrf, member}) {
   const board = useRef(new Chess());
   const engine = useRef(null);
   const level = useRef(2);
@@ -254,16 +275,18 @@ function Game({restart}) {
           <td>{best}</td>
         </tr>)}</tbody></table></div>
     </section>}
+    {result && count>0 && (member ? <GameSuggestions csrf={csrf} losses={samples.current}/> :
+      <section className="move-review"><p><a href="/profile">Войдите в профиль</a>, чтобы получать рекомендации после следующих партий.</p></section>)}
     {defeated && <LossDialog result={result} estimate={estimate}/>}
   </div>;
 }
 
-export default function StockfishGame() {
+export default function StockfishGame({csrf,member}) {
   const [round,setRound] = useState(0);
   return <>
     <h1>Сыграть со Stockfish</h1>
     <p>Выберите фигуру и клетку назначения. Бот усиливается после серии хороших ходов и сбавляет уровень после грубой ошибки.</p>
-    <Game key={round} restart={()=>setRound(round+1)}/>
+    <Game key={round} csrf={csrf} member={member} restart={()=>setRound(round+1)}/>
     <p><small>Движок Stockfish 19 · <a href="https://github.com/nmrugg/stockfish.js/tree/v19.0.1">исходный код</a> · <a href="/static/stockfish/COPYING.txt">GPLv3</a></small></p>
   </>;
 }

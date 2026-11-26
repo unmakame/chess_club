@@ -10,6 +10,40 @@ from tournaments import make_schedule
 
 
 class WebChecks(checks.ClubChecks):
+    def test_training_attempts_and_personal_recommendations(self):
+        client = app.test_client()
+        fields = {"csrf":"training-test"}
+        with client.session_transaction() as current:
+            current["member"] = 15
+            current["token"] = fields["csrf"]
+        game = {"game_id":str(uuid4()), "losses":"40 160 100", **fields}
+        for _ in range(2):
+            self.assertEqual(client.post("/training/game-analysis",data=game).status_code,200)
+        self.assertEqual(self.scalar("SELECT count(*) FROM training_game_analysis WHERE visitor_id=15"),1)
+
+        for move in ("e5d7","e5d7 e5f7"):
+            attempt = {"attempt_id":str(uuid4()), "lesson_id":"fork", "moves":move, **fields}
+            for _ in range(2):
+                first = client.post("/training/attempt",data=attempt).get_json()
+        self.assertEqual(first["mode"],"initial")
+        self.assertEqual(len(first["history"]),2)
+        self.assertEqual(first["history"][0],{
+            "lesson_id":"fork","theme":"fork","difficulty":1,"solved":True,"errors":1,"engine_loss":100,
+        })
+        self.assertNotIn("fork",{item["id"] for item in first["items"]})
+
+        for index in range(6):
+            attempt = {"attempt_id":str(uuid4()), "lesson_id":"mate",
+                       "moves":"e1e8" if index%2 else "e1e7", **fields}
+            latest = client.post("/training/attempt",data=attempt).get_json()
+        self.assertEqual(latest["mode"],"learned")
+        self.assertEqual(len(latest["history"]),8)
+        with client.session_transaction() as current:
+            current["member"] = 16
+        other = client.get("/training").get_data(as_text=True)
+        payload = json.loads(re.search(r'id="page-data">(.*?)</script>',other,re.S)[1])
+        self.assertEqual(payload["plan"]["history"],[])
+
     def test_round_robin_schedule(self):
         for count in (3, 8, 32):
             with self.subTest(players=count):

@@ -40,6 +40,7 @@ def migrate():
         conn.execute("GRANT INSERT ON tournament,tournament_player,tournament_game TO club_app")
         conn.execute("GRANT UPDATE (started_at) ON tournament TO club_app")
         conn.execute("GRANT UPDATE (result) ON tournament_game TO club_app")
+        conn.execute("GRANT SELECT, INSERT ON training_attempt,training_game_analysis TO club_app")
         conn.execute("GRANT USAGE ON SEQUENCE visitor_id_seq,tariff_id_seq TO club_app")
         for signature in ("hold(bigint,bigint,bigint,timestamptz,timestamptz,uuid)", "receive_payment(bigint,uuid,bigint)",
                           "cancel(bigint,text,bigint)", "attendance(bigint,bigint,boolean)", "expire_bookings()",

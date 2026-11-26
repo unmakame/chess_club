@@ -1,17 +1,51 @@
 import json
 import re
 from datetime import datetime, timezone
+from pathlib import Path
 from urllib.error import URLError
 from urllib.request import Request, urlopen
+from uuid import UUID
 
-from flask import jsonify, request, session
+from flask import abort, jsonify, request, session
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from db import connect
+from recommendations import rank_lessons
 
 DAILY_URL = "https://lichess.org/api/puzzle/daily"
 MOVE = re.compile(r"[a-h][1-8][a-h][1-8][qrbn]?")
+LESSONS = json.loads(Path(__file__).with_name("training_lessons.json").read_text(encoding="utf-8"))
+BY_ID = {lesson["id"]: lesson for lesson in LESSONS}
+
+def identifier(field):
+    try:
+        return UUID(request.form.get(field, ""))
+    except ValueError:
+        abort(400)
+
+
+def engine_signal(db, member):
+    row = db.execute("""
+        SELECT round(avg(loss))::int AS strength
+        FROM (SELECT losses FROM training_game_analysis WHERE visitor_id=%s
+              ORDER BY created_at DESC LIMIT 5) AS games
+        CROSS JOIN LATERAL unnest(games.losses) AS moves(loss)
+    """, (member,)).fetchone()
+    return row["strength"]
+
+
+def recommendations(db, member):
+    if not member:
+        return {**rank_lessons(LESSONS, [], None), "history": []}
+    attempts = db.execute("""
+        SELECT lesson_id,theme,difficulty,solved,errors,engine_loss
+        FROM training_attempt WHERE visitor_id=%s
+        ORDER BY created_at DESC,attempt_id DESC LIMIT 160
+    """, (member,)).fetchall()
+    result = rank_lessons(LESSONS, reversed(attempts), engine_signal(db, member))
+    result["history"] = attempts[:12]
+    return result
 
 
 def today():
@@ -51,7 +85,58 @@ def progress(db, member, day):
 def install(app, screen):
     @app.get("/training")
     def training():
-        return screen("training","Шахматный тренажёр",member=bool(session.get("member")))
+        member = session.get("member")
+        with connect() as db:
+            db.row_factory = dict_row
+            plan = recommendations(db, member)
+        return screen("training","Шахматный тренажёр",member=bool(member), lessons=LESSONS, plan=plan)
+
+    @app.post("/training/attempt")
+    def training_attempt():
+        member = session.get("member")
+        if not member:
+            abort(403)
+        attempt_id = identifier("attempt_id")
+        lesson = BY_ID.get(request.form.get("lesson_id"))
+        moves = request.form.get("moves", "").split()
+        if not lesson or not 1<=len(moves)<=104 or not all(MOVE.fullmatch(move) for move in moves):
+            abort(400)
+        expected = lesson["line"][::2]
+        index = errors = 0
+        for move in moves:
+            if index == len(expected):
+                abort(400)
+            if move == expected[index]:
+                index += 1
+            else:
+                errors += 1
+        if errors>100:
+            abort(400)
+        with connect() as db:
+            db.row_factory = dict_row
+            db.execute("""
+                INSERT INTO training_attempt(visitor_id,attempt_id,lesson_id,theme,difficulty,solved,errors,engine_loss)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (visitor_id,attempt_id) DO NOTHING
+            """, (member,attempt_id,lesson["id"],lesson["theme"],lesson["difficulty"],
+                  index==len(expected),errors,engine_signal(db, member)))
+            return jsonify(recommendations(db, member))
+
+    @app.post("/training/game-analysis")
+    def training_game_analysis():
+        member = session.get("member")
+        if not member:
+            abort(403)
+        game_id = identifier("game_id")
+        losses = request.form.get("losses", "").split()
+        if not 1<=len(losses)<=200 or not all(re.fullmatch(r"[0-9]{1,3}", loss) and int(loss)<=500 for loss in losses):
+            abort(400)
+        with connect() as db:
+            db.row_factory = dict_row
+            db.execute("""
+                INSERT INTO training_game_analysis(visitor_id,game_id,losses)
+                VALUES (%s,%s,%s) ON CONFLICT (visitor_id,game_id) DO NOTHING
+            """, (member,game_id,[int(loss) for loss in losses]))
+            return jsonify(recommendations(db, member))
 
     @app.get("/training/daily")
     def training_daily():

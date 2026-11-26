@@ -1,24 +1,8 @@
-import React, {useEffect, useState} from "react";
+import React, {useEffect, useRef, useState} from "react";
 import {Chess} from "chess.js";
 import TrainingPiece from "./TrainingPiece";
 
-const lessons = [
-  {id:"italian", group:"Дебюты", title:"Итальянская партия",
-    idea:"Займите центр пешкой e, выведите коня на f3 и слона на c4. Слон давит на f7.",
-    line:["e2e4","e7e5","g1f3","b8c6","f1c4"]},
-  {id:"sicilian", group:"Дебюты", title:"Открытая сицилианская",
-    idea:"После ответа чёрных c5 выведите коня на f3 и сыграйте d4. После размена верните пешку конём.",
-    line:["e2e4","c7c5","g1f3","d7d6","d2d4","c5d4","f3d4"]},
-  {id:"fork", group:"Тактика", title:"Вилка конём",
-    idea:"Найдите шах конём, который одновременно нападает на ладью.",
-    fen:"3r3k/8/8/4N3/8/8/8/4K3 w - - 0 1",line:["e5f7"]},
-  {id:"pin", group:"Тактика", title:"Абсолютная связка",
-    idea:"Поставьте слона так, чтобы чёрный конь прикрывал короля и не мог уйти.",
-    fen:"4k3/8/2n5/8/8/8/4B3/4K3 w - - 0 1",line:["e2b5"]},
-  {id:"mate", group:"Тактика", title:"Мат по последней горизонтали",
-    idea:"Три пешки закрыли выход чёрному королю. Поставьте мат ладьёй.",
-    fen:"6k1/5ppp/8/8/8/8/8/K3R3 w - - 0 1",line:["e1e8"]},
-];
+import {attemptId, levels, saveTraining, SuggestedLessons, themeNames} from "./TrainingPlan";
 
 function addMove(game, uci) {
   return game.move({from:uci.slice(0,2), to:uci.slice(2,4), promotion:uci[4]});
@@ -34,7 +18,7 @@ function initialFen(puzzle) {
   return partial.fen();
 }
 
-function Exercise({puzzle, csrf, member, onProgress}) {
+function Exercise({puzzle, csrf, member, onProgress, onAttempt}) {
   const [fen,setFen] = useState(()=>initialFen(puzzle));
   const [moves,setMoves] = useState([]);
   const [from,setFrom] = useState(null);
@@ -42,11 +26,26 @@ function Exercise({puzzle, csrf, member, onProgress}) {
   const [done,setDone] = useState(false);
   const [feedback,setFeedback] = useState("");
   const [promotions,setPromotions] = useState([]);
+  const [unsaved,setUnsaved] = useState(null);
+  const attempt = useRef(null);
   const game = new Chess(fen);
   const black = initialFen(puzzle).split(" ")[1] === "b";
   const legal = from ? game.moves({square:from,verbose:true}) : [];
   const board = game.board();
   const name = {k:"Король",q:"Ферзь",r:"Ладья",b:"Слон",n:"Конь",p:"Пешка"};
+
+  async function record(fields) {
+    try {
+      onAttempt(await saveTraining("attempt", fields));
+      setUnsaved(null);
+    } catch {
+      setUnsaved(fields);
+    }
+  }
+
+  function fieldsForAttempt() {
+    return {csrf, attempt_id:attempt.current.id, lesson_id:puzzle.id, moves:attempt.current.moves.join(" ")};
+  }
 
   async function submit(option) {
     setPromotions([]);
@@ -63,6 +62,17 @@ function Exercise({puzzle, csrf, member, onProgress}) {
         if (!response.ok) throw new Error(result.error);
       } else {
         result = {correct:uci===puzzle.line[offset],done:offset+2>=puzzle.line.length,reply:puzzle.line[offset+1]};
+        if (member) {
+          attempt.current ??= {id:attemptId(), moves:[]};
+          attempt.current.moves.push(uci);
+          if (!result.correct && attempt.current.moves.length-moves.length >= 100) {
+            setDone(true);
+            setFeedback("Лимит ошибок исчерпан. Начните заново.");
+            await record(fieldsForAttempt());
+            return;
+          }
+          if (result.correct && result.done) await record(fieldsForAttempt());
+        }
       }
       if (!result.correct) {
         setFeedback("Попробуйте другой ход.");
@@ -117,15 +127,28 @@ function Exercise({puzzle, csrf, member, onProgress}) {
         {promotions.map(option=><button key={option.promotion} onClick={()=>void submit(option)}>{name[option.promotion]}</button>)}
         <button onClick={()=>setPromotions([])}>Отмена</button>
       </div>}
-      <button type="button" disabled={pending} onClick={()=>{
+      {unsaved && <p role="alert">Попытка ещё не сохранена. <button type="button" disabled={pending} onClick={async()=>{
+        setPending(true); await record(unsaved); setPending(false);
+      }}>Повторить сохранение</button></p>}
+      <button type="button" disabled={pending || Boolean(unsaved)} onClick={async()=>{
+        if (member && !puzzle.day && !done && attempt.current?.moves.length) {
+          setPending(true);
+          await record(fieldsForAttempt());
+          setPending(false);
+        }
+        attempt.current = null;
         setFen(initialFen(puzzle));setMoves([]);setFrom(null);setPromotions([]);setDone(false);setFeedback("");
       }}>Начать заново</button>
     </div>
   </div>;
 }
 
-export default function Training({csrf,member}) {
-  const [selected,setSelected] = useState("daily");
+export default function Training({csrf,member,data}) {
+  const {lessons} = data;
+  const requested = new URLSearchParams(location.search).get("lesson");
+  const [selected,setSelected] = useState(lessons.some(lesson=>lesson.id===requested) ? requested : "daily");
+  const [level,setLevel] = useState("");
+  const [plan,setPlan] = useState(data.plan);
   const [daily,setDaily] = useState(null);
   const [error,setError] = useState("");
   useEffect(()=>{
@@ -141,23 +164,48 @@ export default function Training({csrf,member}) {
   const puzzle = selected==="daily" ? daily : lessons.find(lesson=>lesson.id===selected);
   return <><h1>Шахматный тренажёр</h1>
     <section className="training-catalog">
+      <h2>Что потренировать дальше</h2>
+      <p>{plan.mode==="learned" ? "Подбор по вашим попыткам и доступному анализу партий." :
+        "Начальный подбор. Модель обучится по мере накопления успешных и неуспешных попыток."}</p>
+      <SuggestedLessons plan={plan} select={id=>{setLevel("");setSelected(id);}}/>
+    </section>
+    <section className="training-catalog">
       <h2>Задача дня и уроки</h2>
-      <label>Выберите тренировку<select value={selected} onChange={event=>setSelected(event.target.value)}>
+      <label>Уровень<select aria-label="Уровень" value={level} onChange={event=>{
+        const nextLevel = event.target.value;
+        setLevel(nextLevel);
+        if (nextLevel && selected!=="daily" && Number(nextLevel)!==puzzle.difficulty) setSelected("daily");
+      }}>
+        <option value="">Все уровни</option>
+        {levels.map((label,index)=><option key={label} value={index+1}>{label}</option>)}
+      </select></label>
+      <label>Выберите тренировку<select aria-label="Выберите тренировку" value={selected} onChange={event=>setSelected(event.target.value)}>
         <option value="daily">Задача дня</option>
-        {["Дебюты","Тактика"].map(group=><optgroup key={group} label={group}>
-          {lessons.filter(lesson=>lesson.group===group).map(lesson=><option key={lesson.id} value={lesson.id}>{lesson.title}</option>)}
-        </optgroup>)}
+        {Object.entries(themeNames).map(([theme,label])=>{
+          const matching = lessons.filter(lesson=>lesson.theme===theme && (!level || lesson.difficulty===Number(level)));
+          return matching.length ? <optgroup key={theme} label={label}>
+            {matching.map(lesson=><option key={lesson.id} value={lesson.id}>{lesson.title} · {levels[lesson.difficulty-1]}</option>)}
+          </optgroup> : null;
+        })}
       </select></label>
       <p>Серия: <strong>{daily?.streak??0}</strong> дн. · скидка на стол: <strong>{daily?.discount??0}%</strong></p>
       <small>За каждый день подряд +2 процентных пункта, максимум 15%. Новая задача появляется в 00:00 UTC (03:00 МСК).</small>
-      {!member && <p><a href="/profile">Войдите в профиль</a>, чтобы сохранять серию и получать скидку.</p>}
+      {!member && <p><a href="/profile">Войдите в профиль</a>, чтобы сохранять попытки, серию и скидку.</p>}
     </section>
     <section>
       <h2>{selected==="daily" ? "Задача дня" : puzzle.title}</h2>
       {selected==="daily" && daily && <p>{daily.solved ? "Сегодня уже решена · " : ""}<a href={"https://lichess.org/training/"+daily.source}>Источник: Lichess</a></p>}
-      {puzzle ? <Exercise key={selected} puzzle={puzzle} csrf={csrf} member={member}
+      {puzzle ? <Exercise key={selected} puzzle={puzzle} csrf={csrf} member={member} onAttempt={setPlan}
         onProgress={stats=>setDaily(current=>({...current,streak:stats.streak,discount:stats.discount,solved:stats.solved}))}/> :
         <p role="status">{error || "Загружаем задачу дня…"}</p>}
     </section>
+    {plan.history.length>0 && <section><h2>Последние попытки</h2><div className="scroll"><table>
+      <thead><tr><th>Упражнение</th><th>Тема</th><th>Уровень</th><th>Результат</th><th>Ошибки</th></tr></thead>
+      <tbody>{plan.history.map(({lesson_id,theme,difficulty,solved,errors}, index)=><tr key={index}>
+        <td>{lessons.find(lesson=>lesson.id===lesson_id)?.title || lesson_id}</td>
+        <td>{themeNames[theme]}</td><td>{levels[difficulty-1]}</td>
+        <td>{solved ? "Решено" : "Не завершено"}</td><td>{errors}</td>
+      </tr>)}</tbody>
+    </table></div></section>}
   </>;
 }
