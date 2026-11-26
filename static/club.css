@@ -337,3 +337,7 @@ header .nav-item>a:not(.nav-preview) {font:600 clamp(16px,1.55vw,21px)/1.1 "Corm
 .move-negative {color:#ffb7ac}
 [data-theme="light"] .move-negative {color:#8c3529}
 .training-catalog select {width:max-content;max-width:100%}
+
+.tournament-list {padding:0;list-style:none}
+.tournament-list li {display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;padding:12px 0;border-bottom:1px solid var(--line)}
+td .tournament-form {margin:0;flex-wrap:nowrap}

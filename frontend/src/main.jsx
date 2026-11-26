@@ -1,3 +1,4 @@
+import Tournaments from './Tournaments';
 import Training from './Training';
 import StockfishGame from './StockfishGame';
 import ClubBoard from './ClubBoard';
@@ -243,9 +244,9 @@ function ThemeToggle() {
 
 function App() {
   const play = data.screen==="hall" && query.get("play")==="1";
-  const Page=play ? StockfishGame : {training:Training,coaches:Coaches,profile:Profile,ratings:Ratings,hall:Hall,reserve:Reserve,booking:Booking,bookings:Bookings,table:Table,catalog:Catalog,analytics:Reports,error:ErrorPage}[data.screen];
-  const nav=[["/","Зал"],["/bookings","Брони"],["/catalog/visitor","Посетители"],["/catalog/tariff","Тарифы"],["/ratings","Рейтинг"],["/reports","Аналитика"],["/coaches","Тренеры"],["/profile","Профиль"],["/?play=1","Играть"],["/training","Тренировки"]];
-  const active=play ? "/?play=1" : {hall:"/",table:"/",reserve:"/bookings",booking:"/bookings"}[data.screen]||location.pathname;
-  return <><header id="top"><a className="brand" href="/"><img className="brandmark" src="/static/monogram.svg" alt="B, король, B"/><span>bbchess</span></a><SectionNav items={nav} active={active}/><ThemeToggle/></header><main>{data.messages.map(([kind,msg],i)=><aside key={i} role="status" className={kind}>{msg}</aside>)}<Page csrf={data.csrf} member={data.member}/></main><SiteFooter items={nav}/></>;
+  const Page=play ? StockfishGame : {tournaments:Tournaments,tournament:Tournaments,training:Training,coaches:Coaches,profile:Profile,ratings:Ratings,hall:Hall,reserve:Reserve,booking:Booking,bookings:Bookings,table:Table,catalog:Catalog,analytics:Reports,error:ErrorPage}[data.screen];
+  const nav=[["/","Зал"],["/bookings","Брони"],["/catalog/visitor","Посетители"],["/catalog/tariff","Тарифы"],["/ratings","Рейтинг"],["/reports","Аналитика"],["/coaches","Тренеры"],["/profile","Профиль"],["/?play=1","Играть"],["/training","Тренировки"],["/tournaments","Турниры"]];
+  const active=play ? "/?play=1" : {tournament:"/tournaments",hall:"/",table:"/",reserve:"/bookings",booking:"/bookings"}[data.screen]||location.pathname;
+  return <><header id="top"><a className="brand" href="/"><img className="brandmark" src="/static/monogram.svg" alt="B, король, B"/><span>bbchess</span></a><SectionNav items={nav} active={active}/><ThemeToggle/></header><main>{data.messages.map(([kind,msg],i)=><aside key={i} role="status" className={kind}>{msg}</aside>)}<Page csrf={data.csrf} member={data.member} data={data}/></main><SiteFooter items={nav}/></>;
 }
 createRoot(document.getElementById("root")).render(<App/>);
